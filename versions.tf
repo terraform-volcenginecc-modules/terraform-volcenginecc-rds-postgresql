@@ -1,0 +1,15 @@
+terraform {
+  required_version = "= 1.5.7"
+
+  required_providers {
+    time = {
+      source  = "hashicorp/time"
+      version = ">= 0.9.1"
+    }
+
+    volcenginecc = {
+      source  = "volcengine/volcenginecc"
+      version = "0.0.70"
+    }
+  }
+}

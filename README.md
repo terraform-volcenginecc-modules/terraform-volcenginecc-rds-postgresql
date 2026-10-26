@@ -1,88 +1,126 @@
 # terraform-volcenginecc-rds-postgresql
 
-Terraform Module scaffold for the VolcengineCC provider.
+Draft Terraform module for Volcengine RDS PostgreSQL. It is intended for SaaS
+backends, transactional applications, JSON or geospatial workloads, and
+internal platforms.
 
-> Status: Scaffold only. The Terraform implementation for this repository is
-> not available yet, and this repository is not ready for production use.
+> Status: `draft`. Terraform `1.5.7` and Registry Provider `0.0.70` have
+> completed a disposable real-cloud lifecycle.
 
-## Overview
+## 1. Overview
 
-This repository reserves the module name `volcengine/rds-postgresql/volcenginecc`.
+The caller owns the VPC, database subnet, and security groups. This module
+creates one PostgreSQL instance and can optionally manage parameter templates,
+allowlists, database accounts, databases, and explicit backup resources.
 
-The module is intended to provide a reusable Terraform abstraction for the
-`rds-postgresql` scenario using the `volcengine/volcenginecc` provider.
+The `allow_lists` map uses stable caller-defined keys. Changing a map key
+changes the Terraform resource address. The module never creates a public
+endpoint or permits `0.0.0.0/0` through its caller-supplied IP allowlists.
+Allowlists support CIDRs only; security group bindings are not supported.
 
-Current scope:
+Provider `0.0.70` has no instance field that attaches an RDS PostgreSQL
+parameter template. When `parameter_template` is supplied, the module creates
+and outputs the template, but cannot apply it to the instance. Do not treat
+the template output as evidence that its parameters are active.
 
-- Repository and module scaffold only.
-- No Terraform resources or data sources are currently managed.
-- No production-readiness or real-cloud validation claim is made.
+`manual_backups` manages explicit backup resources. Adding a key requests a
+new backup; it is not a passive backup-policy-only setting. The RDS PostgreSQL
+API does not support deleting Physical backups; use the retention policy as
+the cleanup mechanism.
 
-## Usage
+## 2. Usage
 
-The module implementation is not available yet. A runnable configuration will
-be added together with the first implementation release.
+```hcl
+module "postgresql" {
+  source  = "terraform-volcenginecc-modules/rds-postgresql/volcenginecc"
+  version = "~> 1.0"
 
-Provider authentication and region configuration must be supplied by the
-caller. Do not commit credentials, access keys, secrets, Terraform state, or
-plan files.
+  instance_name     = var.instance_name
+  vpc_id            = var.vpc_id
+  subnet_id         = var.subnet_id
+  db_engine_version = var.db_engine_version
+  nodes             = var.nodes
+  charge_detail     = var.charge_detail
+}
+```
 
-## Examples
+## 3. Examples
 
-Examples will be added when the module implementation is available.
+- `basic`: basic PostgreSQL for development or
+  disposable validation.
+- `complete`: production high availability,
+  account and database creation, a parameter template, a private CIDR
+  allowlist, and an explicit backup strategy.
 
-Planned examples:
-
-- `examples/basic`
-- `examples/complete`
-
-## Requirements
+## 4. Requirements
 
 | Name | Version |
 |---|---|
-| Terraform | To be defined with the first implementation |
-| `volcengine/volcenginecc` | To be defined with the first implementation |
+| Terraform | 1.5.7 |
+| volcengine/volcenginecc | 0.0.70 |
 
-## Providers
+## 5. Providers
 
 | Name | Source |
 |---|---|
 | `volcenginecc` | `volcengine/volcenginecc` |
 
-## Resources
+## 6. Resources
 
-No resources or data sources are currently managed.
+| Name | Description |
+|---|---|
+| PostgreSQL instance | One managed RDS PostgreSQL instance. |
+| Optional child resources | Parameter templates, allowlists, accounts, databases, and explicit backups when configured. |
 
-The resource inventory will be documented before the first release.
+## 7. Inputs
 
-## Inputs
+| Name | Description | Required |
+|---|---|---|
+| `instance_name` | Instance name. | yes |
+| `vpc_id` | Existing VPC ID. | yes |
+| `subnet_id` | Existing database subnet ID. | yes |
+| `db_engine_version` | PostgreSQL engine version. | yes |
+| `nodes` | Ordered primary, secondary, and optional read-only node topology. | yes |
+| `charge_detail` | Billing configuration. | yes |
+| `storage_space_gb` | LocalSSD capacity in GB. | no |
+| `allow_list_ids` / `allow_lists` | Existing or module-managed instance allowlists. | no |
+| `allow_list_unbind_wait_seconds` | Seconds to wait after instance deletion before deleting module-managed allowlists; defaults to `600`. | no |
+| `parameter_template` | Optional standalone PostgreSQL parameter template. | no |
+| `accounts` / `account_passwords` | Database accounts and sensitive passwords. | no |
+| `databases` | Databases and optional owners. | no |
+| `manual_backups` | Explicit physical or logical backup resources. | no |
 
-No input variables are currently defined.
+Refer to the module variable declarations for exact types, validations, and defaults.
 
-All inputs will document their type, default value, required status,
-validation, ownership, and replacement behavior when implemented.
+## 8. Outputs
 
-## Outputs
+| Name | Description |
+|---|---|
+| Instance information | Instance identifiers and connection information returned by the Provider. |
+| Optional child information | Identifiers for module-managed child resources. |
 
-No outputs are currently defined.
+## 9. Notes
 
-Outputs will document their exact semantics when implemented.
-
-## Notes
-
-- This repository is currently a scaffold and is not a publishable functional
-  module.
-- Real-cloud validation has not been performed.
-- Provider limitations and unsupported scenarios will be documented before
-  release.
-- Resource ownership, import behavior, replacement behavior, cost risks, and
-  cleanup procedures must be documented before the first release.
-
-## Security
-
-Please report security issues according to the [Security Policy](SECURITY.md).
-Do not disclose security vulnerabilities through public issues.
-
-## License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE).
+- Account passwords are sensitive inputs but are stored in Terraform state by
+  the Provider. Use encrypted remote state and a secret manager-backed
+  variable source.
+- The module ignores computed billing detail changes returned by the Provider
+  to avoid perpetual PostPaid updates. Validate all billing changes in a
+  dedicated real-cloud fixture.
+- The RDS PostgreSQL API cannot delete Physical backups. Destroying the module
+  does not delete them; manage cleanup with the backup retention policy.
+- RDS unbinds allowlists asynchronously after instance deletion. The module
+  waits `allow_list_unbind_wait_seconds` before deleting module-managed
+  allowlists; the default is `600` seconds and the supported range is `0` to
+  `900` seconds.
+- RDS PostgreSQL instance data sources in Provider `0.0.70` can read a bound
+  `allow_list_ids` value as `null`. Do not use this field to determine
+  allowlist bindings, drive conditional resources, or write instance
+  allowlist configuration.
+- PostgreSQL API constraints, resource replacement behavior, backup creation
+  timing, and parameter-template application require real-cloud validation.
+- Import support belongs to each Provider resource; import existing resources
+  before declaring them in this module to avoid duplicate ownership.
+- Before production use, run `init`, `validate`, and a disposable real-cloud
+  lifecycle that includes create, read-back, a second `plan` with no changes,
+  and destroy.
